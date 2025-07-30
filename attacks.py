@@ -148,5 +148,5 @@ def run_loss(target_signals: np.ndarray) -> np.ndarray:
     Returns:
         np.ndarray: MIA score for all samples (a larger score indicates higher chance of being member).
     """
-    mia_scores = target_signals # Invert the sign so that higher probability of true class = higher membership likelihood
+    mia_scores = target_signals # Higher probability of true class = higher membership likelihood
     return mia_scores

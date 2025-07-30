@@ -120,8 +120,10 @@ def get_dataset(dataset_name: str, data_dir: str, logger: Any, **kwargs: Any) ->
         elif dataset_name == "cifar20":
             transform = transforms.Compose(
                 [
+                    transforms.RandomCrop(32, padding=4),
+                    transforms.RandomHorizontalFlip(),
                     transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+                    transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761]),
                 ]
             )
             all_data = torchvision.datasets.CIFAR100(

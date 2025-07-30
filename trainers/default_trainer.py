@@ -56,12 +56,20 @@ def train(
     optimizer = get_optimizer(model, configs)
 
     epochs = configs.get("epochs", 1)
-    scheduler = lr_scheduler.LambdaLR(
-        optimizer,
-        lr_lambda=lambda step: lr_update(
-            step * 256, epochs, len(train_loader) * 256, 0.1
-        ),
-    )
+
+    if configs.get("scheduler", None) == "step":
+        scheduler = lr_scheduler.StepLR(
+            optimizer,
+            step_size=int(epochs * configs.get("scheduler_step_fraction", 0.3)),
+            gamma=configs.get("scheduler_step_gamma", 0.2),
+        )
+    else:
+        scheduler = lr_scheduler.LambdaLR(
+            optimizer,
+            lr_lambda=lambda step: lr_update(
+                step * 256, epochs, len(train_loader) * 256, 0.1
+            ),
+        )
 
     for epoch_idx in range(epochs):
         start_time = time.time()
@@ -237,6 +245,56 @@ def inference(
 
     return avg_loss, accuracy
 
+def set_weight_decay(model, skip_list=(), skip_keywords=()):
+    """
+    Set differential weight decay for different parameter groups.
+    
+    Args:
+        model: PyTorch model
+        skip_list: List of parameter names to skip weight decay
+        skip_keywords: List of keywords to identify parameters to skip weight decay
+        
+    Returns:
+        List of parameter groups with different weight decay values
+    """
+    has_decay = []
+    no_decay = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue  # frozen weights
+        if (
+            len(param.shape) == 1  # bias terms
+            or name.endswith(".bias")  # explicit bias parameters
+            or (name in skip_list)  # manually specified parameters
+            or check_keywords_in_name(name, skip_keywords)  # parameters with specific keywords
+        ):
+            no_decay.append(param)
+        else:
+            has_decay.append(param)
+    
+    return [
+        {"params": has_decay, "weight_decay": 5e-4},  # Apply weight decay to weights
+        {"params": no_decay, "weight_decay": 0.0}     # No weight decay for bias/norm layers
+    ]
+
+
+def check_keywords_in_name(name, keywords=()):
+    """
+    Check if any keyword is present in the parameter name.
+    
+    Args:
+        name: Parameter name
+        keywords: List of keywords to check for
+        
+    Returns:
+        Boolean indicating if any keyword is found
+    """
+    isin = False
+    for keyword in keywords:
+        if keyword in name:
+            isin = True
+    return isin
 
 def get_optimizer(model: torch.nn.Module, configs: Dict) -> torch.optim.Optimizer:
     """
@@ -257,26 +315,46 @@ def get_optimizer(model: torch.nn.Module, configs: Dict) -> torch.optim.Optimize
     weight_decay = configs.get("weight_decay", 0.0)
     momentum = configs.get("momentum", 0.0)
 
+    # Check if differential weight decay is enabled
+    use_differential_wd = configs.get("differential_weight_decay", False)
+    
+    if use_differential_wd:
+        # Use differential weight decay
+        parameters = set_weight_decay(model)
+        print(f"Using differential weight decay: 5e-4 for weights, 0.0 for bias/norm layers")
+    else:
+        # Use uniform weight decay
+        parameters = model.parameters()
+        print(f"Using uniform weight decay: {weight_decay}")
+
     print(
-        f"Using optimizer: {optimizer_name} | Learning Rate: {learning_rate} | Weight Decay: {weight_decay}"
+        f"Using optimizer: {optimizer_name} | Learning Rate: {learning_rate} | Weight Decay: {weight_decay} | Momentum: {momentum}"
     )
 
     if optimizer_name == "SGD":
         return torch.optim.SGD(
-            model.parameters(),
+            parameters,
             lr=learning_rate,
             weight_decay=weight_decay,
             momentum=momentum,
         )
+    elif optimizer_name == "SGD_Nesterov":
+        return torch.optim.SGD(
+            parameters,
+            lr=learning_rate,
+            weight_decay=weight_decay,
+            momentum=momentum,
+            nesterov=True,
+        )
     elif optimizer_name == "Adam":
         return torch.optim.Adam(
-            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+            parameters, lr=learning_rate, weight_decay=weight_decay
         )
     elif optimizer_name == "AdamW":
         return torch.optim.AdamW(
-            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+            parameters, lr=learning_rate, weight_decay=weight_decay
         )
     else:
         raise NotImplementedError(
-            f"Optimizer '{optimizer_name}' is not implemented. Choose 'SGD', 'Adam', or 'AdamW'."
+            f"Optimizer '{optimizer_name}' is not implemented. Choose 'SGD', 'SGD_Nesterov', 'Adam', or 'AdamW'."
         )

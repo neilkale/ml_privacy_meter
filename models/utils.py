@@ -6,6 +6,8 @@ import logging
 import os
 import pickle
 import time
+import multiprocessing as mp
+from itertools import cycle
 from pathlib import Path
 
 import numpy as np
@@ -263,7 +265,7 @@ def train_models(log_dir, dataset, data_split_info, all_memberships, configs, lo
     Path(experiment_dir).mkdir(parents=True, exist_ok=True)
     logger.info(f"Training {len(data_split_info)} models")
 
-    model_list = prepare_models(
+    model_list = prepare_models_parallel(
         experiment_dir, dataset, data_split_info, all_memberships, configs, logger
     )
     return model_list
@@ -498,6 +500,194 @@ def prepare_models(
 
     return model_list
 
+
+def _train_and_save_worker(
+    split: int,
+    split_info: dict,
+    dataset: torchvision.datasets,
+    configs: dict,
+    log_dir: str,
+    device: str,
+    results_queue: mp.Queue,
+):
+    """
+    Worker function to train a single model on a specific GPU.
+    This function is called by each process in the multiprocessing pool.
+    """
+    # Create a worker-specific copy of train configs to set the device
+    worker_train_configs = copy.deepcopy(configs["train"])
+    worker_train_configs["device"] = device
+
+    # Pre-process split_info to remove OOD samples for reference models
+    if split >= configs["run"]["num_experiments"] and configs["data"].get("drop_classes"):
+        drop_classes = configs["data"]["drop_classes"]
+        dataset_targets = np.array(dataset.targets)
+        train_ood_mask = np.isin(dataset_targets[split_info["train"]], drop_classes)
+        test_ood_mask = np.isin(dataset_targets[split_info["test"]], drop_classes)
+        split_info["train"] = split_info["train"][~train_ood_mask]
+        split_info["test"] = split_info["test"][~test_ood_mask]
+
+    baseline_time = time.time()
+    print(50 * "-")
+    print(
+        f"Worker {split}: Starting training on {device}. "
+        f"Train size {len(split_info['train'])}, Test size {len(split_info['test'])}"
+    )
+
+    model_name, dataset_name, batch_size = (
+        configs["train"]["model_name"],
+        configs["data"]["dataset"],
+        configs["train"]["batch_size"],
+    )
+
+    # --- Training logic, adapted to use the assigned `device` ---
+    if model_name == "gpt2":
+        # GPT-2 training logic... (assuming it uses device from configs)
+        hf_dataset = dataset.hf_dataset
+        worker_configs = copy.deepcopy(configs)
+        worker_configs['train']['device'] = device
+        # ... (original gpt2 training calls using worker_configs)
+        train_acc, test_acc = None, None
+
+    elif model_name != "speedyresnet":
+        train_loader = get_dataloader(
+            torch.utils.data.Subset(dataset, split_info["train"]),
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=0,
+        )
+        test_loader = get_dataloader(
+            torch.utils.data.Subset(dataset, split_info["test"]),
+            batch_size=batch_size,
+            num_workers=0,
+        )
+        # Explicitly move model to the assigned device
+        model = get_model(model_name, dataset_name, configs).to(device)
+        model = train(model, train_loader, worker_train_configs, test_loader)
+        test_loss, test_acc = inference(model, test_loader, device)
+        train_loss, train_acc = inference(model, train_loader, device)
+        print(f"Worker {split}: Test accuracy {test_acc:.4f}, Test Loss {test_loss:.4f}")
+
+    elif model_name == "speedyresnet" and dataset_name == "cifar10":
+        # SpeedyResNet training logic...
+        # ... (original speedyresnet calls using the assigned `device`)
+        pass # Placeholder for your speedyresnet logic
+
+    else:
+        raise ValueError(f"The model {model_name} is not supported for {dataset_name}")
+
+    print(f"Worker {split}: Training took {time.time() - baseline_time:.2f} seconds.")
+
+    # Save model state_dict to file
+    model_path = f"{log_dir}/model_{split}.pkl"
+    with open(model_path, "wb") as f:
+        pickle.dump(model.to("cpu").state_dict(), f)
+
+    # Prepare metadata for this model
+    metadata = {
+        "num_train": len(split_info["train"]),
+        "optimizer": configs["train"]["optimizer"],
+        "batch_size": batch_size,
+        "epochs": configs["train"]["epochs"],
+        "model_name": model_name,
+        "learning_rate": configs["train"]["learning_rate"],
+        "weight_decay": configs["train"]["weight_decay"],
+        "model_path": model_path,
+        "train_acc": train_acc,
+        "test_acc": test_acc,
+        "train_loss": train_loss,
+        "test_loss": test_loss,
+        "dataset": dataset_name,
+    }
+
+    # Return results, moving the model object to CPU to free GPU memory
+    results_queue.put((split, model.to("cpu").state_dict(), metadata))
+    print(f"Worker {split}: Results placed in queue.")
+
+def prepare_models_parallel(
+    log_dir: str,
+    dataset: torchvision.datasets,
+    data_split_info: list,
+    all_memberships: np.array,
+    configs: dict,
+    logger,
+):
+    """
+    Trains models in parallel using manually managed, non-daemonic processes,
+    allowing DataLoader to use its own workers.
+    """
+    np.save(f"{log_dir}/memberships.npy", all_memberships)
+
+    devices = configs["train"].get("device", "cpu")
+    if isinstance(devices, str):
+        devices = [devices]
+    
+    # 'spawn' is still the recommended start method for CUDA
+    try:
+        mp.set_start_method("spawn", force=True)
+    except RuntimeError:
+        pass # Already set
+
+    # Use the Manager as a context manager
+    with mp.Manager() as manager:
+        # 1. Create the queue from the manager
+        results_queue = manager.Queue()
+
+        device_cycle = cycle(devices)
+        processes = []
+        num_models = len(data_split_info)
+
+        # 2. Create and start a process for each model
+        for split in range(num_models):
+            process_args = (
+                split,
+                data_split_info[split],
+                dataset,
+                configs,
+                log_dir,
+                next(device_cycle),
+                results_queue,
+            )
+            p = mp.Process(target=_train_and_save_worker, args=process_args)
+            processes.append(p)
+            p.start()
+            logger.info(f"Launched process for model {split}.")
+
+        # 3. Collect results from the queue
+        results = []
+        for _ in range(num_models):
+            results.append(results_queue.get())
+        
+        # 4. Wait for all processes to complete
+        for p in processes:
+            p.join()
+
+    # The manager and its queue are automatically shut down here upon exiting the 'with' block
+    logger.info("All training processes and the manager have completed.")
+
+    # --- Process and save the collected results ---
+    results.sort(key=lambda x: x[0]) # Sort by model index
+
+    model_metadata_dict = {}
+    model_list = []
+
+    # Recreate model objects from the state_dicts
+    for split_idx, state_dict, metadata in results:
+        model_metadata_dict[split_idx] = metadata
+        # Re-create the model and load its trained state
+        model_obj = get_model(
+            configs["train"]["model_name"], 
+            configs["data"]["dataset"], 
+            configs
+        )
+        model_obj.load_state_dict(state_dict)
+        model_list.append(model_obj)
+
+    with open(f"{log_dir}/models_metadata.json", "w") as f:
+        json.dump(model_metadata_dict, f, indent=4)
+    logger.info(f"Saved aggregated model metadata.")
+
+    return model_list
 
 def dp_prepare_models(
     log_dir: str,

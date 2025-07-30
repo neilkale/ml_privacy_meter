@@ -106,7 +106,7 @@ def main():
     memberships_id = memberships[:, dataset_id.indices]
     memberships_ood = memberships[:, dataset_ood.indices]
     memberships_ood[num_experiments:, :] = False
-    
+
     mems = [memberships_id, memberships_ood]
     exp_dirs = ["exp_id", "exp_ood"]
     # Set OOD membership to False for all reference models since they did not see OOD samples
@@ -149,6 +149,11 @@ def main():
             configs,
             offline_a_tuned if label == "OOD" else None
         )
+
+        # if label == "OOD":
+        #     print(f"Average indicator value for members: {np.mean(signals[membership_list[0],0])}")
+        #     print(f"Average indicator value for non-members: {np.mean(~signals[membership_list[0],0])}")
+        #     import pdb; pdb.set_trace()
 
         if len(target_model_indices) > 1:
             logger.info(
