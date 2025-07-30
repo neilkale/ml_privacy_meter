@@ -85,6 +85,7 @@ def get_audit_results(report_dir, model_idx, mia_scores, target_memberships, log
         fpr=attack_result["fpr"],
         tpr=attack_result["tpr"],
         auc=attack_result["auc"],
+        one_fpr=attack_result["one_fpr"],
         one_tenth_fpr=attack_result["one_tenth_fpr"],
         zero_fpr=attack_result["zero_fpr"],
         scores=mia_scores.ravel(),

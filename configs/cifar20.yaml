@@ -6,7 +6,7 @@ run: # Configurations for a specific run
 
 audit: # Configurations for auditing
   privacy_game: privacy_loss_model # Indicate the privacy game from privacy_loss_model
-  algorithm: LOSS # String for indicating the membership inference attack. We currently support the RMIA introduced by Zarifzadeh et al. 2024(https://openreview.net/pdf?id=sT7UJh5CTc)) and the LOSS attacks
+  algorithm: RMIA # String for indicating the membership inference attack. We currently support the RMIA introduced by Zarifzadeh et al. 2024(https://openreview.net/pdf?id=sT7UJh5CTc)) and the LOSS attacks
   num_ref_models: 1 # Number of reference models used to audit each target model
   device: cuda:0 # String for indicating the device we want to use for inferring signals and auditing models
   report_log: report_rmia # String that indicates the folder where we save the log and auditing report
@@ -31,7 +31,7 @@ train: # Configuration for training
   optimizer: SGD
   learning_rate: 0.1
   weight_decay: 0.0005
-  epochs: 20
+  epochs: 30
 
 data: # Configuration for data
   dataset: cifar20 # String indicates the name of the dataset. We support cifar10, cifar100, purchase100 and texas100 by default.

@@ -101,14 +101,15 @@ def main():
 
     # In-distribution (ID) and out-of-distribution (OOD) auditing
     dsets = [dataset_id, dataset_ood]
-    pops = [population_id, population_ood]
+    pops = [population_id, population_id]
     labels = ["ID", "OOD"]
     memberships_id = memberships[:, dataset_id.indices]
     memberships_ood = memberships[:, dataset_ood.indices]
+    memberships_ood[num_experiments:, :] = False
+    
     mems = [memberships_id, memberships_ood]
     exp_dirs = ["exp_id", "exp_ood"]
     # Set OOD membership to False for all reference models since they did not see OOD samples
-    memberships_ood[num_experiments:, :] = False
     offline_a_tuned = None
 
     for dset, pop, label, mems, exp_dir in zip(dsets, pops, labels, mems, exp_dirs):
@@ -136,9 +137,6 @@ def main():
         # Perform the privacy audit
         baseline_time = time.time()
         target_model_indices = list(range(num_experiments))
-
-        if label == "OOD":
-            import pdb; pdb.set_trace()
         
         mia_score_list, membership_list, offline_a_tuned = audit_models(
             f"{directories['report_dir']}/{exp_dir}",

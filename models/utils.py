@@ -366,6 +366,7 @@ def prepare_models(
     # for split, split_info in enumerate(data_split_info):
     for split in range(len(data_split_info)):
 
+        split_info = data_split_info[split]
         # NEW: remove the OOD samples from the training data for the auditing reference models
         if split < configs["run"]["num_experiments"]:
             is_target_model = True
@@ -381,8 +382,7 @@ def prepare_models(
             split_info["train"] = split_info["train"][~train_ood_mask]
             split_info["test"] = split_info["test"][~test_ood_mask]
             logger.info(f"Removed {train_ood_mask.sum() + test_ood_mask.sum()} OOD samples from reference model {split}")
-
-        split_info = data_split_info[split]
+        
         baseline_time = time.time()
         logger.info(50 * "-")
         logger.info(
