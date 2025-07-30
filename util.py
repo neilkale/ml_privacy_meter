@@ -134,6 +134,16 @@ def load_canary_dataset(
         tokenizer=configs["dp_audit"]["tokenizer"],
     )
 
+def split_dataset_for_clsdrop(dataset, drop_classes):
+    """
+    Split dataset into ID and OOD based on classes.
+    """
+    dataset_targets = torch.tensor([target for _, target in dataset])
+    dataset_id_mask = ~torch.tensor([t in drop_classes for t in dataset_targets])
+    dataset_ood_mask = torch.tensor([t in drop_classes for t in dataset_targets])
+    dataset_id = torch.utils.data.Subset(dataset, torch.where(dataset_id_mask)[0])
+    dataset_ood = torch.utils.data.Subset(dataset, torch.where(dataset_ood_mask)[0])
+    return dataset_id, dataset_ood
 
 def split_dataset_for_training_poisson(dataset_size, num_model_pairs):
     """

@@ -135,6 +135,7 @@ def get_average_audit_results(report_dir, mia_score_list, membership_list, logge
         tpr=attack_result["tpr"],
         auc=attack_result["auc"],
         one_tenth_fpr=attack_result["one_tenth_fpr"],
+        one_fpr=attack_result["one_fpr"],
         zero_fpr=attack_result["zero_fpr"],
         scores=mia_scores.ravel(),
         memberships=target_memberships.ravel(),
@@ -150,6 +151,7 @@ def audit_models(
     num_reference_models,
     logger,
     configs,
+    offline_a_tuned=None,
 ):
     """
     Audit target model(s) using a Membership Inference Attack algorithm.
@@ -163,6 +165,7 @@ def audit_models(
         num_reference_models (int): Number of reference models used for performing the attack.
         logger (logging.Logger): Logger object for the current run.
         configs (dict): Configs provided by the user.
+        offline_a_tuned (float): The best offline_a tuned for the target model.
 
     Returns:
         list: List of MIA score arrays for all audited target models.
@@ -172,18 +175,23 @@ def audit_models(
 
     mia_score_list = []
     membership_list = []
+    offline_a = None
 
     for target_model_idx in target_model_indices:
         baseline_time = time.time()
         if configs["audit"]["algorithm"] == "RMIA":
-            offline_a = tune_offline_a(
-                target_model_idx,
-                all_signals,
-                population_signals,
-                all_memberships,
-                logger,
-            )[0]
-            logger.info(f"The best offline_a is %0.1f", offline_a)
+            if offline_a_tuned is None:
+                offline_a = tune_offline_a(
+                    target_model_idx,
+                    all_signals,
+                    population_signals,
+                    all_memberships,
+                    logger,
+                )[0]
+                logger.info(f"The best offline_a is %0.1f", offline_a)
+            else:
+                offline_a = offline_a_tuned
+                logger.info(f"Using a pretuned offline_a of %0.1f", offline_a)
             mia_scores = run_rmia(
                 target_model_idx,
                 all_signals,
@@ -214,7 +222,7 @@ def audit_models(
             time.time() - baseline_time,
         )
 
-    return mia_score_list, membership_list
+    return mia_score_list, membership_list, offline_a
 
 
 def audit_models_range(
@@ -373,7 +381,7 @@ def sample_auditing_dataset(
             "Auditing multiple models. Balanced downsampling is only based on the data membership of the FIRST target model!"
         )
 
-    audit_data_size = configs["audit"].get("data_size", len(dataset))
+    audit_data_size = min(configs["audit"].get("data_size", len(dataset)), len(dataset))
     if audit_data_size < len(dataset):
         if audit_data_size % 2 != 0:
             raise ValueError("Audit data size must be an even number.")

@@ -31,6 +31,7 @@ from peft import get_peft_model
 INPUT_OUTPUT_SHAPE = {
     "cifar10": [3, 10],
     "cifar100": [3, 100],
+    "cifar20": [3, 20],
     "purchase100": [600, 100],
     "texas100": [6169, 100],
 }
@@ -364,6 +365,23 @@ def prepare_models(
 
     # for split, split_info in enumerate(data_split_info):
     for split in range(len(data_split_info)):
+
+        # NEW: remove the OOD samples from the training data for the auditing reference models
+        if split < configs["run"]["num_experiments"]:
+            is_target_model = True
+        else:
+            is_target_model = False
+        if not is_target_model and configs["data"].get("drop_classes", None) is not None:
+            drop_classes = configs["data"].get("drop_classes", None)
+            dataset_targets = np.array(dataset.targets)
+            # Find which indices in train/test sets correspond to OOD classes
+            train_ood_mask = np.isin(dataset_targets[split_info["train"]], drop_classes)
+            test_ood_mask = np.isin(dataset_targets[split_info["test"]], drop_classes)
+            # Remove those indices
+            split_info["train"] = split_info["train"][~train_ood_mask]
+            split_info["test"] = split_info["test"][~test_ood_mask]
+            logger.info(f"Removed {train_ood_mask.sum() + test_ood_mask.sum()} OOD samples from reference model {split}")
+
         split_info = data_split_info[split]
         baseline_time = time.time()
         logger.info(50 * "-")

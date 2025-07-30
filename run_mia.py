@@ -118,7 +118,7 @@ def main():
     # Perform the privacy audit
     baseline_time = time.time()
     target_model_indices = list(range(num_experiments))
-    mia_score_list, membership_list = audit_models(
+    mia_score_list, membership_list, _ = audit_models(
         f"{directories['report_dir']}/exp",
         target_model_indices,
         signals,

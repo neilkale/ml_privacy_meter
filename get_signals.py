@@ -146,35 +146,35 @@ def get_model_signals(models_list, dataset, configs, logger, is_population=False
     Returns:
         signals (np.array): Signal value for all samples in all models
     """
-    # Check if signals are available on disk
+    # # Check if signals are available on disk
     signal_file_name = (
         f"{configs['audit']['algorithm'].lower()}_ramia_signals"
         if configs.get("ramia", None)
         else f"{configs['audit']['algorithm'].lower()}_signals"
     )
     signal_file_name += "_pop.npy" if is_population else ".npy"
-    if os.path.exists(
-        f"{configs['run']['log_dir']}/signals/{signal_file_name}",
-    ):
-        signals = np.load(
-            f"{configs['run']['log_dir']}/signals/{signal_file_name}",
-        )
-        if configs.get("ramia", None) is None:
-            expected_size = len(dataset)
-            signal_source = "training data size"
-        else:
-            expected_size = len(dataset) * configs["ramia"]["sample_size"]
-            signal_source = f"training data size multiplied by ramia sample size ({configs['ramia']['sample_size']})"
+    # if os.path.exists(
+    #     f"{configs['run']['log_dir']}/signals/{signal_file_name}",
+    # ):
+    #     signals = np.load(
+    #         f"{configs['run']['log_dir']}/signals/{signal_file_name}",
+    #     )
+    #     if configs.get("ramia", None) is None:
+    #         expected_size = len(dataset)
+    #         signal_source = "training data size"
+    #     else:
+    #         expected_size = len(dataset) * configs["ramia"]["sample_size"]
+    #         signal_source = f"training data size multiplied by ramia sample size ({configs['ramia']['sample_size']})"
 
-        if signals.shape[0] == expected_size:
-            logger.info("Signals loaded from disk successfully.")
-            return signals
-        else:
-            logger.warning(
-                f"Signals shape ({signals.shape[0]}) does not match the expected size ({expected_size}). "
-                f"This mismatch is likely due to a change in the {signal_source}."
-            )
-            logger.info("Ignoring the signals on disk and recomputing.")
+    #     if signals.shape[0] == expected_size:
+    #         logger.info("Signals loaded from disk successfully.")
+    #         return signals
+    #     else:
+    #         logger.warning(
+    #             f"Signals shape ({signals.shape[0]}) does not match the expected size ({expected_size}). "
+    #             f"This mismatch is likely due to a change in the {signal_source}."
+    #         )
+    #         logger.info("Ignoring the signals on disk and recomputing.")
 
     batch_size = configs["audit"]["batch_size"]  # Batch size used for inferring signals
     model_name = configs["train"]["model_name"]  # Algorithm used for training models
